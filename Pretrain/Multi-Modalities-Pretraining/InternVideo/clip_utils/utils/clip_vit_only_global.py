@@ -40,7 +40,8 @@ class LayerNorm(nn.LayerNorm):
 
     def forward(self, x):
         orig_type = x.dtype
-        ret = super().forward(x.type(torch.float32))
+        layer_dtype = self.bias.dtype
+        ret = super().forward(x.type(layer_dtype))
         return ret.type(orig_type)
 
 
