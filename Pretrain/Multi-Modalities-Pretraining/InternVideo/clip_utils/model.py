@@ -104,7 +104,7 @@ class VideoIntern(nn.Module):
         cls_dropout=0.5,
         t_size=8,
         use_image_attnmap=True,
-        backbone='vit_2plus1d_dw_bias_b16',
+        backbone="vit_2plus1d_dw_bias_b16",
         return_list=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         use_checkpoint=False,
         checkpoint_num=[0],
@@ -152,7 +152,7 @@ class VideoIntern(nn.Module):
         self.ln_final = LayerNorm(transformer_width)
 
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self._logit_scale = nn.Parameter(torch.ones([1]) * np.log(1 / 0.07))
 
         self.embed_dim = embed_dim
 
@@ -163,6 +163,10 @@ class VideoIntern(nn.Module):
         # self.eot_token_embedding = nn.Parameter(torch.empty(1, transformer_width))
 
         self.initialize_parameters()
+
+    @property
+    def logit_scale(self):
+        return self._logit_scale[0]
 
     def initialize_parameters(self):
         nn.init.normal_(self.token_embedding.weight, std=0.02)

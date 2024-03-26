@@ -11,6 +11,7 @@ from .evl_utils import TransformerDecoder_uniformer_diff_conv_balance
 from einops import rearrange
 from ipdb import set_trace
 from copy import deepcopy
+
 # from .clip_decoders import CaptionDecoder
 
 
@@ -34,16 +35,24 @@ class ResidualAttentionBlock(nn.Module):
 
         self.attn = nn.MultiheadAttention(d_model, n_head)
         self.ln_1 = LayerNorm(d_model)
-        self.mlp = nn.Sequential(OrderedDict([
-            ("c_fc", nn.Linear(d_model, d_model * 4)),
-            ("gelu", QuickGELU()),
-            ("c_proj", nn.Linear(d_model * 4, d_model))
-        ]))
+        self.mlp = nn.Sequential(
+            OrderedDict(
+                [
+                    ("c_fc", nn.Linear(d_model, d_model * 4)),
+                    ("gelu", QuickGELU()),
+                    ("c_proj", nn.Linear(d_model * 4, d_model)),
+                ]
+            )
+        )
         self.ln_2 = LayerNorm(d_model)
         self.attn_mask = attn_mask
 
     def attention(self, x: torch.Tensor):
-        self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
+        self.attn_mask = (
+            self.attn_mask.to(dtype=x.dtype, device=x.device)
+            if self.attn_mask is not None
+            else None
+        )
         return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
     def forward(self, x: torch.Tensor):
@@ -53,11 +62,15 @@ class ResidualAttentionBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
+    def __init__(
+        self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None
+    ):
         super().__init__()
         self.width = width
         self.layers = layers
-        self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
+        self.resblocks = nn.Sequential(
+            *[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)]
+        )
 
     def forward(self, x: torch.Tensor):
         # if self.use_checkpoint and self.checkpoint_num[1] > 0:
@@ -66,41 +79,52 @@ class Transformer(nn.Module):
         # else:
         return self.resblocks(x)
 
+
 class CLIP(nn.Module):
-    def __init__(self,
-                 embed_dim: int,
-                 # vision
-                 image_resolution: int,
-                 vision_layers: Union[Tuple[int, int, int, int], int],
-                 vision_width: int,
-                 vision_patch_size: int,
-                 # text
-                 context_length: int,
-                 vocab_size: int,
-                 transformer_width: int,
-                 transformer_heads: int,
-                 transformer_layers: int,
-                 # evl
-                 n_layers=4, n_dim=768, n_head=12, mlp_factor=4.0, drop_path_rate=0.,
-                 mlp_dropout=[0.5, 0.5, 0.5, 0.5], cls_dropout=0.5, t_size=8, spatial_size=14,
-                 use_t_conv=True, use_image_attnmap=True, use_t_pos_embed=True,
-                 backbone='vit_2plus1d_dw_bias_b16',
-                 uni_layer=0,
-                 uni_type='2d',
-                 add_ffn=False,
-                 t_conv_type='3d',
-                 pre_prompt=False,
-                 balance=0.,
-                 after_me=True, 
-                 before_me=False, 
-                 me_type='stm', 
-                 me_reduction=4,
-                 init_zero=True,
-                 return_list=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-                 use_capdecoder=False,
-                ):
+    def __init__(
+        self,
+        embed_dim: int,
+        # vision
+        image_resolution: int,
+        vision_layers: Union[Tuple[int, int, int, int], int],
+        vision_width: int,
+        vision_patch_size: int,
+        # text
+        context_length: int,
+        vocab_size: int,
+        transformer_width: int,
+        transformer_heads: int,
+        transformer_layers: int,
+        # evl
+        n_layers=4,
+        n_dim=768,
+        n_head=12,
+        mlp_factor=4.0,
+        drop_path_rate=0.0,
+        mlp_dropout=[0.5, 0.5, 0.5, 0.5],
+        cls_dropout=0.5,
+        t_size=8,
+        spatial_size=14,
+        use_t_conv=True,
+        use_image_attnmap=True,
+        use_t_pos_embed=True,
+        backbone="vit_2plus1d_dw_bias_b16",
+        uni_layer=0,
+        uni_type="2d",
+        add_ffn=False,
+        t_conv_type="3d",
+        pre_prompt=False,
+        balance=0.0,
+        after_me=True,
+        before_me=False,
+        me_type="stm",
+        me_reduction=4,
+        init_zero=True,
+        return_list=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        use_capdecoder=False,
+    ):
         super().__init__()
-        
+
         # All assertions is for adhoc clip_kc and should be removed
         # assert vision_layers == 12, vision_layers
         assert image_resolution == 224, image_resolution
@@ -113,21 +137,29 @@ class CLIP(nn.Module):
 
         vision_heads = vision_width // 64
         self.visual = evl_utils.__dict__[backbone](
-            pretrained=False, t_size=t_size, mlp_dropout=mlp_dropout, cls_dropout=cls_dropout, n_dim=n_dim,
-            n_head=n_head, return_list=return_list, drop_path_rate=drop_path_rate, backbone_drop_path_rate=drop_path_rate)
+            pretrained=False,
+            t_size=t_size,
+            mlp_dropout=mlp_dropout,
+            cls_dropout=cls_dropout,
+            n_dim=n_dim,
+            n_head=n_head,
+            return_list=return_list,
+            drop_path_rate=drop_path_rate,
+            backbone_drop_path_rate=drop_path_rate,
+        )
         # self.evl = TransformerDecoder_uniformer_diff_conv_balance(
-        #     n_layers=n_layers, n_dim=n_dim, n_head=n_head, 
+        #     n_layers=n_layers, n_dim=n_dim, n_head=n_head,
         #     mlp_factor=mlp_factor, drop_path_rate=drop_path_rate,
-        #     mlp_dropout=mlp_dropout, cls_dropout=cls_dropout, t_size=t_size, 
+        #     mlp_dropout=mlp_dropout, cls_dropout=cls_dropout, t_size=t_size,
         #     use_t_conv=use_t_conv, use_t_pos_embed=use_t_pos_embed,
-        #     uni_layer=uni_layer, uni_type=uni_type, add_ffn=add_ffn, t_conv_type=t_conv_type, 
+        #     uni_layer=uni_layer, uni_type=uni_type, add_ffn=add_ffn, t_conv_type=t_conv_type,
         #     pre_prompt=pre_prompt, balance=balance,
-        #     after_me=after_me, before_me=before_me, 
+        #     after_me=after_me, before_me=before_me,
         #     me_type=me_type, me_reduction=me_reduction,
         #     init_zero=init_zero,
         # )
         self.visual_ln_post = nn.LayerNorm(n_dim)
-        scale =  n_dim ** -0.5
+        scale = n_dim**-0.5
         self.visual_proj = nn.Parameter(scale * torch.randn(n_dim, embed_dim))
         self.return_qk = use_image_attnmap
         self.return_num = n_layers
@@ -141,11 +173,13 @@ class CLIP(nn.Module):
 
         self.vocab_size = vocab_size
         self.token_embedding = nn.Embedding(vocab_size, transformer_width)
-        self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
+        self.positional_embedding = nn.Parameter(
+            torch.empty(self.context_length, transformer_width)
+        )
         self.ln_final = LayerNorm(transformer_width)
 
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self._logit_scale = nn.Parameter(torch.ones([1]) * np.log(1 / 0.07))
 
         self.embed_dim = embed_dim
 
@@ -157,14 +191,20 @@ class CLIP(nn.Module):
 
         self.initialize_parameters()
 
+    @property
+    def logit_scale(self):
+        return self._logit_scale[0]
+
     def initialize_parameters(self):
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         nn.init.normal_(self.positional_embedding, std=0.01)
         nn.init.normal_(self.text_mask_embedding, std=0.02)
         # nn.init.constant_(self.eot_token_embedding, 0.0)
 
-        proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)
-        attn_std = self.transformer.width ** -0.5
+        proj_std = (self.transformer.width**-0.5) * (
+            (2 * self.transformer.layers) ** -0.5
+        )
+        attn_std = self.transformer.width**-0.5
         fc_std = (2 * self.transformer.width) ** -0.5
         for block in self.transformer.resblocks:
             nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
@@ -173,8 +213,8 @@ class CLIP(nn.Module):
             nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
 
         if self.text_projection is not None:
-            nn.init.normal_(self.text_projection, std=self.transformer.width ** -0.5)
-        
+            nn.init.normal_(self.text_projection, std=self.transformer.width**-0.5)
+
         nn.init.constant_(self.visual_ln_post.weight, 1.0)
         nn.init.constant_(self.visual_ln_post.bias, 0.0)
 
@@ -190,7 +230,9 @@ class CLIP(nn.Module):
     def dtype(self):
         return self.visual.conv1.weight.dtype
 
-    def encode_video(self, video, return_all_feats=False, masked_indices=None, mode="video"):
+    def encode_video(
+        self, video, return_all_feats=False, masked_indices=None, mode="video"
+    ):
         # video: [N, C, T, H, W]
         feats = self.visual(video, return_all_feats=return_all_feats, mode=mode)
         if return_all_feats:
@@ -241,7 +283,7 @@ class CLIP(nn.Module):
 
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
-        logits_per_video= logit_scale * video_features @ text_features.t()
+        logits_per_video = logit_scale * video_features @ text_features.t()
         logits_per_text = logits_per_video.t()
 
         # shape = [global_batch_size, global_batch_size]
@@ -258,69 +300,119 @@ def convert_weights(model: nn.Module):
                 l.bias.data = l.bias.data.half()
 
         if isinstance(l, nn.MultiheadAttention):
-            for attr in [*[f"{s}_proj_weight" for s in ["in", "q", "k", "v"]], "in_proj_bias", "bias_k", "bias_v"]:
+            for attr in [
+                *[f"{s}_proj_weight" for s in ["in", "q", "k", "v"]],
+                "in_proj_bias",
+                "bias_k",
+                "bias_v",
+            ]:
                 tensor = getattr(l, attr)
                 if tensor is not None:
                     tensor.data = tensor.data.half()
 
         for name in ["text_projection", "proj"]:
-            if hasattr(l, name) and not isinstance(l, TransformerDecoder_uniformer_diff_conv_balance):
+            if hasattr(l, name) and not isinstance(
+                l, TransformerDecoder_uniformer_diff_conv_balance
+            ):
                 attr = getattr(l, name)
                 if attr is not None:
                     attr.data = attr.data.half()
 
     model.apply(_convert_weights_to_fp16)
 
+
 def interpolate_temporal_pos_embed(pos_embed, T):
     # [1, t, d] -> [1, d, t]
     pos_embed = pos_embed.transpose(-2, -1)
     # [1, d, t] -> [1, d, T]
-    pos_embed = F.interpolate(pos_embed, size=(T), mode='linear')
+    pos_embed = F.interpolate(pos_embed, size=(T), mode="linear")
     # [1, d, T] -> [1, T, d]
     return pos_embed.transpose(-2, -1)
+
 
 def interploate_rpb(rpb, T):
     t1 = T * 2 - 1
     rpb = rpb.transpose(0, 1).unsqueeze(0)
-    rpb = F.interpolate(rpb, size=(t1), mode='linear')
+    rpb = F.interpolate(rpb, size=(t1), mode="linear")
     return rpb.squeeze(0).transpose(0, 1)
 
+
 def build_model(
-        state_dict: dict,
-        # evl
-        n_layers=4, n_dim=768, n_head=12, mlp_factor=4.0, drop_path_rate=0.,
-        mlp_dropout=[0.5, 0.5, 0.5, 0.5], cls_dropout=0.5, t_size=8, spatial_size=14,
-        use_t_conv=True, use_image_attnmap=True, use_t_pos_embed=True, no_pretrain=False,
-        init_zero=True, mergeclip=False, mergeweight=0.5, use_capdecoder=False, clip_state_dict=None, 
-    ):
+    state_dict: dict,
+    # evl
+    n_layers=4,
+    n_dim=768,
+    n_head=12,
+    mlp_factor=4.0,
+    drop_path_rate=0.0,
+    mlp_dropout=[0.5, 0.5, 0.5, 0.5],
+    cls_dropout=0.5,
+    t_size=8,
+    spatial_size=14,
+    use_t_conv=True,
+    use_image_attnmap=True,
+    use_t_pos_embed=True,
+    no_pretrain=False,
+    init_zero=True,
+    mergeclip=False,
+    mergeweight=0.5,
+    use_capdecoder=False,
+    clip_state_dict=None,
+):
     vit = "visual.proj" in state_dict or "visual.positional_embedding" in state_dict
 
     if "visual.proj" in state_dict:
         state_dict["visual_proj"] = state_dict["visual.proj"]
         state_dict["visual_ln_post.weight"] = state_dict["visual.ln_post.weight"]
         state_dict["visual_ln_post.bias"] = state_dict["visual.ln_post.bias"]
-        del state_dict["visual.proj"], state_dict["visual.ln_post.weight"], state_dict["visual.ln_post.bias"]
+        del (
+            state_dict["visual.proj"],
+            state_dict["visual.ln_post.weight"],
+            state_dict["visual.ln_post.bias"],
+        )
     # new_state_dict = OrderedDict()
     # for k, v in state_dict.items():
     #     if k.startswith("backbone."):
     #         k = k.replace("backbone.", "visual.")
-        
+
     #     new_state_dict[k] = v
-    
+
     # state_dict = new_state_dict
     if vit:
         vision_width = state_dict["visual.conv1.weight"].shape[0]
-        vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
+        vision_layers = len(
+            [
+                k
+                for k in state_dict.keys()
+                if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")
+            ]
+        )
         vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
-        grid_size = round((state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5)
+        grid_size = round(
+            (state_dict["visual.positional_embedding"].shape[0] - 1) ** 0.5
+        )
         image_resolution = vision_patch_size * grid_size
     else:
-        counts: list = [len(set(k.split(".")[2] for k in state_dict if k.startswith(f"visual.layer{b}"))) for b in [1, 2, 3, 4]]
+        counts: list = [
+            len(
+                set(
+                    k.split(".")[2]
+                    for k in state_dict
+                    if k.startswith(f"visual.layer{b}")
+                )
+            )
+            for b in [1, 2, 3, 4]
+        ]
         vision_layers = tuple(counts)
         vision_width = state_dict["visual.layer1.0.conv1.weight"].shape[0]
-        output_width = round((state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5)
+        output_width = round(
+            (state_dict["visual.attnpool.positional_embedding"].shape[0] - 1) ** 0.5
+        )
         vision_patch_size = None
-        assert output_width ** 2 + 1 == state_dict["visual.attnpool.positional_embedding"].shape[0]
+        assert (
+            output_width**2 + 1
+            == state_dict["visual.attnpool.positional_embedding"].shape[0]
+        )
         image_resolution = output_width * 32
 
     # embed_dim = 512
@@ -333,13 +425,19 @@ def build_model(
     vocab_size = state_dict["token_embedding.weight"].shape[0]
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
-    transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
+    transformer_layers = len(
+        set(
+            k.split(".")[2]
+            for k in state_dict
+            if k.startswith(f"transformer.resblocks")
+        )
+    )
 
     ########### add this ############
     # for k, v in state_dict.items():
     #     print(k, v.shape)
     ################################################
-    
+
     vision_width = state_dict["visual_proj"].shape[0]
     n_dim = vision_width
     if vision_width == 768:
@@ -361,12 +459,30 @@ def build_model(
 
     model = CLIP(
         embed_dim,
-        image_resolution, vision_layers, vision_width, vision_patch_size,
-        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers,
-        n_layers=n_layers, n_dim=n_dim, n_head=n_head, mlp_factor=mlp_factor, drop_path_rate=drop_path_rate,
-        mlp_dropout=mlp_dropout, cls_dropout=cls_dropout, t_size=t_size, spatial_size=spatial_size,
-        use_t_conv=use_t_conv, use_image_attnmap=use_image_attnmap, use_t_pos_embed=use_t_pos_embed, backbone=backbone,
-        init_zero=init_zero, return_list=return_list,
+        image_resolution,
+        vision_layers,
+        vision_width,
+        vision_patch_size,
+        context_length,
+        vocab_size,
+        transformer_width,
+        transformer_heads,
+        transformer_layers,
+        n_layers=n_layers,
+        n_dim=n_dim,
+        n_head=n_head,
+        mlp_factor=mlp_factor,
+        drop_path_rate=drop_path_rate,
+        mlp_dropout=mlp_dropout,
+        cls_dropout=cls_dropout,
+        t_size=t_size,
+        spatial_size=spatial_size,
+        use_t_conv=use_t_conv,
+        use_image_attnmap=use_image_attnmap,
+        use_t_pos_embed=use_t_pos_embed,
+        backbone=backbone,
+        init_zero=init_zero,
+        return_list=return_list,
     )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
@@ -374,24 +490,27 @@ def build_model(
             del state_dict[key]
 
     # convert_weights(model)
-    temporal_key = 'visual.temporal_positional_embedding'
-    temporal_key2 = 'evl.pemb_t'
-    
+    temporal_key = "visual.temporal_positional_embedding"
+    temporal_key2 = "evl.pemb_t"
+
     if temporal_key in state_dict and t_size != state_dict[temporal_key].size(1):
-        state_dict[temporal_key] = interpolate_temporal_pos_embed(state_dict[temporal_key], t_size)
-        state_dict[temporal_key2] = interpolate_temporal_pos_embed(state_dict[temporal_key2], t_size)
+        state_dict[temporal_key] = interpolate_temporal_pos_embed(
+            state_dict[temporal_key], t_size
+        )
+        state_dict[temporal_key2] = interpolate_temporal_pos_embed(
+            state_dict[temporal_key2], t_size
+        )
         for kk, vv in state_dict.items():
-            if 'rpb_t' in kk:
+            if "rpb_t" in kk:
                 size_old = state_dict[kk].shape
                 state_dict[kk] = interploate_rpb(vv, t_size)
                 size_new = state_dict[kk].shape
-                print('Interpolating' ,kk, size_old, '-->', size_new)
+                print("Interpolating", kk, size_old, "-->", size_new)
     # set_trace()
 
     # print('$' * 100)
     # for k, v in model.state_dict().items():
     #     print(k, v.shape)
-
 
     if mergeclip:
         assert 0.0 <= mergeweight <= 1.0
@@ -405,27 +524,29 @@ def build_model(
         evl_utils.clip_vit_fusion.clip_load_state_dict(model, clip_sd)
         loaded_dict = model.state_dict()
         clip_sd_new = {k: v.cpu() for k, v in loaded_dict.items() if k in clip_sd}
-        
+
         # set_trace()
-        
+
         new_sd = deepcopy(state_dict)
 
         for k in new_sd:
             if k not in clip_sd_new:
                 continue
             if any(x in k for x in clip_sd_new.keys()):
-                print('merging: ', k, '\t', clip_sd_new[k].shape, state_dict[k].shape)
-                new_sd[k] = clip_sd_new[k] * mergeweight + state_dict[k] * (1.0 - mergeweight)
-                
+                print("merging: ", k, "\t", clip_sd_new[k].shape, state_dict[k].shape)
+                new_sd[k] = clip_sd_new[k] * mergeweight + state_dict[k] * (
+                    1.0 - mergeweight
+                )
+
                 ############## only merge the clip text features, this is for ActivityNet ###########
-                # if 'visual' in k: 
+                # if 'visual' in k:
                 #     new_sd[k] = clip_sd[k]
                 # else:
                 #     new_sd[k] = clip_sd[k] * mergeweight + state_dict[k] * (1.0 - mergeweight)
                 ################################################################################
 
                 ############## only merge the clip visual features, this is for MSVD ###########
-                # if 'visual' in k: 
+                # if 'visual' in k:
                 #     new_sd[k] = clip_sd[k] * mergeweight + state_dict[k] * (1.0 - mergeweight)
                 # else:
                 #     new_sd[k] = clip_sd[k]
